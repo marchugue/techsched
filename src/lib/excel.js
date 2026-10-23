@@ -1,4 +1,4 @@
-const ExcelJS = require('exceljs');
+const Workbook = require('exceljs/lib/doc/workbook');
 
 // Colours sampled from the reference sheet.
 const C = {
@@ -24,7 +24,7 @@ function paint(cell, { bg, fg = C.ink, size = 10, bold = true, italic = false })
 
 async function writeExcel(model, filePath) {
   const rh = model.rowHeights;
-  const wb = new ExcelJS.Workbook();
+  const wb = new Workbook();
   wb.creator = 'TechSched';
   wb.created = new Date();
 
