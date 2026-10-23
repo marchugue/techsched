@@ -1142,13 +1142,14 @@
         toast(res.message);
       } else if (res && res.status === 'error') {
         state.updater.status = 'error';
-        state.updater.message = 'Update check: ' + res.message;
+        state.updater.message = res.message;
         toast(res.message, 'error');
       }
     } catch (e) {
       state.updater.status = 'error';
-      state.updater.message = 'Update check failed: ' + cleanErr(e);
-      toast(cleanErr(e), 'error');
+      const msg = cleanErr(e);
+      state.updater.message = msg.length > 100 ? msg.slice(0, 100) + '…' : msg;
+      toast(state.updater.message, 'error');
     }
     if (state.view === 'settings') renderSettings();
   }

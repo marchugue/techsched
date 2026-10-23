@@ -225,9 +225,15 @@ function registerIpc() {
       };
     } catch (err) {
       log.error('Manual update check error:', err);
+      let msg = err.message || String(err);
+      if (msg.includes('404') || msg.includes('releases.atom')) {
+        msg = 'GitHub repository is private or no release found. Make the repository Public or provide a GitHub token.';
+      } else if (msg.length > 120) {
+        msg = msg.split('\n')[0].slice(0, 120);
+      }
       return {
         status: 'error',
-        message: err.message || String(err)
+        message: msg
       };
     }
   });
@@ -303,9 +309,15 @@ function setupAutoUpdater() {
 
   autoUpdater.on('error', (err) => {
     log.error('AutoUpdater error:', err);
+    let msg = err == null ? 'Unknown update error' : (err.message || String(err));
+    if (msg.includes('404') || msg.includes('releases.atom')) {
+      msg = 'GitHub repository is private or no release found. Make the repository Public or provide a GitHub token.';
+    } else if (msg.length > 120) {
+      msg = msg.split('\n')[0].slice(0, 120);
+    }
     sendUpdaterStatus({
       status: 'error',
-      message: err == null ? 'Unknown update error' : (err.message || String(err))
+      message: msg
     });
   });
 
