@@ -38,6 +38,22 @@ function uniqueStrings(list) {
   return out;
 }
 
+function sanitizeMember(m) {
+  if (typeof m === 'string') {
+    const s = m.trim();
+    return s ? { name: s, positions: [] } : null;
+  }
+  if (m && typeof m === 'object') {
+    const name = String(m.name || '').trim();
+    if (!name) return null;
+    const positions = Array.isArray(m.positions)
+      ? m.positions.map((p) => String(p || '').trim().slice(0, 6)).filter(Boolean)
+      : [];
+    return { name, positions: [...new Set(positions)] };
+  }
+  return null;
+}
+
 function sanitize(cfg) {
   const d = defaults();
   const out = Object.assign(d, cfg || {});
@@ -55,7 +71,17 @@ function sanitize(cfg) {
     })
     .map((p) => ({ code: p.code, label: p.label || p.code }));
 
-  out.members = uniqueStrings(out.members);
+  const seenMembers = new Set();
+  out.members = (Array.isArray(out.members) ? out.members : [])
+    .map(sanitizeMember)
+    .filter((m) => {
+      if (!m || !m.name) return false;
+      const k = m.name.toLowerCase();
+      if (seenMembers.has(k)) return false;
+      seenMembers.add(k);
+      return true;
+    });
+
   out.eventPresets = uniqueStrings(out.eventPresets);
   out.linesPerRow = Math.min(4, Math.max(1, parseInt(out.linesPerRow, 10) || 2));
   out.showLegend = !!out.showLegend;

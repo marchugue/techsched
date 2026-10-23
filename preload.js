@@ -20,5 +20,16 @@ contextBridge.exposeInMainWorld('api', {
     const handler = (e, data) => cb(data);
     ipcRenderer.on('updater:status', handler);
     return () => ipcRenderer.removeListener('updater:status', handler);
+  },
+  minimizeWindow: () => call('window:minimize'),
+  maximizeWindow: () => call('window:maximize'),
+  closeWindow: () => call('window:close'),
+  isMaximized: () => call('window:isMaximized'),
+  getBounds: () => call('window:getBounds'),
+  setBounds: (b) => call('window:setBounds', b),
+  onMaximizedChange: (cb) => {
+    const handler = (e, val) => cb(val);
+    ipcRenderer.on('window:maximized-change', handler);
+    return () => ipcRenderer.removeListener('window:maximized-change', handler);
   }
 });

@@ -117,6 +117,7 @@
     document.querySelectorAll('.view').forEach((s) => s.classList.toggle('hidden', s.id !== 'view-' + v));
     if (v === 'new') renderNew();
     if (v === 'history') loadHistory();
+    if (v === 'team') renderTeam();
     if (v === 'settings') renderSettings();
   }
 
@@ -146,15 +147,176 @@
     const info = h('div', { class: 'month-info-centered' });
     const grid = h('div', { class: 'cal ios-cal' });
 
-    const monthInput = h('input', {
-      class: 'input ios-month-input', type: 'month', value: d.month, 'aria-label': 'Month',
-      onchange: (e) => {
-        if (!L.parseMonth(e.target.value)) { e.target.value = d.month; return; }
-        d.month = e.target.value;
-        d.id = null; // a different month is a new schedule
-        refresh();
+    let pm = L.parseMonth(d.month) || { year: new Date().getFullYear(), month: new Date().getMonth() + 1 };
+    let pickerYear = pm.year;
+    let popoverEl = null;
+
+    function makeCalIcon() {
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('class', 'cal-icon');
+      svg.setAttribute('viewBox', '0 0 24 24');
+      svg.setAttribute('fill', 'none');
+      svg.setAttribute('stroke', 'currentColor');
+      svg.setAttribute('stroke-width', '2');
+      svg.setAttribute('stroke-linecap', 'round');
+      svg.setAttribute('stroke-linejoin', 'round');
+      svg.innerHTML = '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line>';
+      return svg;
+    }
+
+    const btnPrevMonth = h('button', {
+      type: 'button',
+      class: 'btn-month-nav',
+      title: 'Previous month',
+      onclick: () => {
+        closePopover();
+        let y = pm.year;
+        let m = pm.month - 1;
+        if (m < 1) { m = 12; y--; }
+        setMonth(y, m);
+      }
+    }, '‹');
+
+    const btnNextMonth = h('button', {
+      type: 'button',
+      class: 'btn-month-nav',
+      title: 'Next month',
+      onclick: () => {
+        closePopover();
+        let y = pm.year;
+        let m = pm.month + 1;
+        if (m > 12) { m = 1; y++; }
+        setMonth(y, m);
+      }
+    }, '›');
+
+    const btnMonthDisplay = h('button', {
+      type: 'button',
+      class: 'btn-month-display',
+      title: 'Choose month and year',
+      onclick: (e) => {
+        e.stopPropagation();
+        togglePopover();
       }
     });
+
+    function updateDisplayButton() {
+      btnMonthDisplay.replaceChildren(
+        makeCalIcon(),
+        h('span', {}, `${L.MONTHS[pm.month - 1]} ${pm.year}`),
+        h('span', { class: 'chevron-icon' }, '▾')
+      );
+    }
+
+    function setMonth(y, m) {
+      const newStr = `${y}-${L.pad(m)}`;
+      if (newStr === d.month) return;
+      d.month = newStr;
+      d.id = null; // a different month is a new schedule
+      pm = L.parseMonth(d.month) || { year: y, month: m };
+      pickerYear = pm.year;
+      updateDisplayButton();
+      refresh();
+    }
+
+    function closePopover() {
+      if (popoverEl) {
+        popoverEl.remove();
+        popoverEl = null;
+        document.removeEventListener('mousedown', onDocClick);
+      }
+    }
+
+    const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    function renderPopoverContent() {
+      if (!popoverEl) return;
+      popoverEl.replaceChildren();
+
+      const yearHeader = h('div', { class: 'picker-year-header' },
+        h('button', {
+          type: 'button',
+          class: 'picker-year-btn',
+          title: 'Previous year',
+          onclick: (e) => {
+            e.stopPropagation();
+            pickerYear--;
+            renderPopoverContent();
+          }
+        }, '‹'),
+        h('span', { class: 'picker-year-val' }, String(pickerYear)),
+        h('button', {
+          type: 'button',
+          class: 'picker-year-btn',
+          title: 'Next year',
+          onclick: (e) => {
+            e.stopPropagation();
+            pickerYear++;
+            renderPopoverContent();
+          }
+        }, '›')
+      );
+
+      const monthsGrid = h('div', { class: 'picker-months-grid' });
+      SHORT_MONTHS.forEach((mName, idx) => {
+        const mNum = idx + 1;
+        const isCurrent = (pickerYear === pm.year && mNum === pm.month);
+        const cell = h('button', {
+          type: 'button',
+          class: 'picker-month-cell' + (isCurrent ? ' active' : ''),
+          title: `${L.MONTHS[idx]} ${pickerYear}`,
+          onclick: (e) => {
+            e.stopPropagation();
+            setMonth(pickerYear, mNum);
+            closePopover();
+          }
+        }, mName);
+        monthsGrid.append(cell);
+      });
+
+      popoverEl.append(yearHeader, monthsGrid);
+    }
+
+    function onDocClick(e) {
+      if (popoverEl && !monthGroup.contains(e.target) && !popoverEl.contains(e.target)) {
+        closePopover();
+      }
+    }
+
+    function positionPopover() {
+      if (!popoverEl) return;
+      const rect = btnMonthDisplay.getBoundingClientRect();
+      const scrollY = window.scrollY || 0;
+      const scrollX = window.scrollX || 0;
+      const popW = 290;
+      let left = rect.left + scrollX + rect.width / 2 - popW / 2;
+      if (left + popW > window.innerWidth - 8) left = window.innerWidth - popW - 8;
+      if (left < 8) left = 8;
+      const top = rect.bottom + scrollY + 8;
+      popoverEl.style.position = 'fixed';
+      popoverEl.style.top = (rect.bottom + 8) + 'px';
+      popoverEl.style.left = left + 'px';
+      popoverEl.style.width = popW + 'px';
+    }
+
+    function togglePopover() {
+      if (popoverEl) {
+        closePopover();
+        return;
+      }
+      pickerYear = pm.year;
+      popoverEl = h('div', { class: 'month-picker-popover body-anchored' });
+      renderPopoverContent();
+      document.body.append(popoverEl);
+      positionPopover();
+      document.addEventListener('mousedown', onDocClick);
+    }
+
+    const monthGroup = h('div', { class: 'month-selector-group' },
+      btnPrevMonth,
+      btnMonthDisplay,
+      btnNextMonth
+    );
 
     const btnGen = h('button', { class: 'btn primary ios-btn-primary', onclick: generate }, 'Generate schedule');
     const btnClear = h('button', {
@@ -188,7 +350,8 @@
     }
 
     function refresh() {
-      const pm = L.parseMonth(d.month);
+      pm = L.parseMonth(d.month) || { year: new Date().getFullYear(), month: new Date().getMonth() + 1 };
+      updateDisplayButton();
       const total = L.daysInMonth(pm.year, pm.month);
       const offset = L.firstWeekday(pm.year, pm.month);
       const used = Object.keys(d.days).filter((k) => +k >= 1 && +k <= total).length;
@@ -204,7 +367,7 @@
 
     const toolbar = h('div', { class: 'ios-schedule-toolbar' },
       h('div', { class: 'toolbar-inner' },
-        monthInput,
+        monthGroup,
         btnClear,
         btnGen
       )
@@ -224,29 +387,263 @@
     const total = L.daysInMonth(pm.year, pm.month);
     const offset = L.firstWeekday(pm.year, pm.month);
 
+    // --- Drag-span state ---
+    let dragStart = null;
+    let dragEnd = null;
+    let isDragging = false;
+    let fillPopover = null;
+
+    function closeFillPopover() {
+      if (fillPopover) { fillPopover.remove(); fillPopover = null; }
+      document.removeEventListener('mousedown', onFillDocClick);
+    }
+
+    function onFillDocClick(e) {
+      if (fillPopover && !fillPopover.contains(e.target)) closeFillPopover();
+    }
+
+    function getRangeMinMax() {
+      if (dragStart === null || dragEnd === null) return null;
+      return { from: Math.min(dragStart, dragEnd), to: Math.max(dragStart, dragEnd) };
+    }
+
+    function updateRangeHighlight() {
+      const range = getRangeMinMax();
+      grid.querySelectorAll('.cal-cell').forEach((el) => {
+        const day = +el.dataset.day;
+        const inRange = range && day >= range.from && day <= range.to;
+        el.classList.toggle('drag-selected', inRange);
+        el.classList.toggle('drag-start', range && day === range.from);
+        el.classList.toggle('drag-end', range && day === range.to);
+      });
+    }
+
+    function openFillPopover(anchorCell) {
+      closeFillPopover();
+      const range = getRangeMinMax();
+      if (!range || range.from === range.to) return; // single day — open normal editor
+
+      const rect = anchorCell.getBoundingClientRect();
+      const popW = 280;
+      let left = rect.left + rect.width / 2 - popW / 2;
+      if (left + popW > window.innerWidth - 8) left = window.innerWidth - popW - 8;
+      if (left < 8) left = 8;
+      const top = rect.bottom + 8;
+
+      const eventInput = h('input', {
+        class: 'input',
+        placeholder: `Event name for ${L.MONTHS[pm.month - 1]} ${range.from}–${range.to}…`,
+        style: 'width:100%; margin-bottom: 10px;',
+        onkeydown: (e) => {
+          if (e.key === 'Enter') { e.preventDefault(); applyFill(eventInput.value.trim()); }
+          if (e.key === 'Escape') { closeFillPopover(); clearDrag(); }
+        }
+      });
+
+      const countLabel = h('div', {
+        style: 'font-size:11.5px; color: var(--gold-dark); font-weight:700; margin-bottom:8px; display:flex; align-items:center; gap:6px;'
+      },
+        h('span', {
+          style: 'background: linear-gradient(135deg,var(--gold-vibrant),var(--gold-amber)); color:#1A1200; border-radius:6px; padding:2px 8px; font-size:11px; font-weight:800;'
+        }, `${range.to - range.from + 1} days`),
+        `${L.MONTHS[pm.month - 1]} ${range.from} – ${range.to}`
+      );
+
+      fillPopover = h('div', { class: 'span-fill-popover' },
+        countLabel,
+        eventInput,
+        h('div', { style: 'display:flex; gap:8px;' },
+          h('button', {
+            class: 'btn primary',
+            style: 'flex:1; font-size:13px;',
+            onclick: () => applyFill(eventInput.value.trim())
+          }, 'Apply to all days'),
+          h('button', {
+            class: 'btn ios-btn-ghost',
+            style: 'font-size:13px;',
+            onclick: () => { closeFillPopover(); clearDrag(); }
+          }, 'Cancel')
+        )
+      );
+
+      fillPopover.style.cssText = `position:fixed; top:${top}px; left:${left}px; width:${popW}px; z-index:9998;`;
+      document.body.append(fillPopover);
+      setTimeout(() => { eventInput.focus(); }, 30);
+      document.addEventListener('mousedown', onFillDocClick);
+    }
+
+    function applyFill(eventText) {
+      const range = getRangeMinMax();
+      if (!range) return;
+      for (let day = range.from; day <= range.to; day++) {
+        if (!d.days[day]) d.days[day] = { events: [], assignments: [] };
+        const evs = d.days[day].events;
+        if (eventText && !evs.includes(eventText)) evs.push(eventText);
+      }
+      closeFillPopover();
+      clearDrag();
+      drawGrid(grid, onChange);
+      onChange();
+    }
+
+    function clearDrag() {
+      dragStart = null;
+      dragEnd = null;
+      isDragging = false;
+      grid.querySelectorAll('.cal-cell').forEach((el) => {
+        el.classList.remove('drag-selected', 'drag-start', 'drag-end');
+      });
+    }
+
+    // --- Build span event map ---
+    // For each event label, find consecutive runs of days that share it
+    // spanMap[day] = array of { label, isStart, isEnd, isContinuation }
+    const spanMap = {};
+    // collect all unique event labels across all days
+    const allEventLabels = new Set();
+    for (let day = 1; day <= total; day++) {
+      const evs = (d.days[day] || {}).events || [];
+      evs.forEach((e) => e && allEventLabels.add(e));
+    }
+
+    // for each label, find runs of consecutive days
+    allEventLabels.forEach((label) => {
+      let runStart = null;
+      for (let day = 1; day <= total + 1; day++) {
+        const hasIt = day <= total && ((d.days[day] || {}).events || []).includes(label);
+        if (hasIt && runStart === null) {
+          runStart = day;
+        } else if (!hasIt && runStart !== null) {
+          // commit run from runStart to day-1
+          for (let rd = runStart; rd <= day - 1; rd++) {
+            if (!spanMap[rd]) spanMap[rd] = [];
+            spanMap[rd].push({
+              label,
+              isStart: rd === runStart,
+              isEnd: rd === day - 1,
+              spanLength: day - runStart,
+              posInSpan: rd - runStart
+            });
+          }
+          runStart = null;
+        }
+      }
+    });
+
+    // --- Build cells ---
     const cells = L.WEEKDAYS.map((w) => h('div', { class: 'cal-head' }, w));
     for (let i = 0; i < offset; i++) cells.push(h('div', { class: 'cal-blank' }));
 
     for (let day = 1; day <= total; day++) {
       const data = d.days[day] || { events: [], assignments: [] };
       const lines = L.groupLines(data.assignments, state.config.positions);
-      const evs = data.events.slice(0, 3).map((ev) => h('div', { class: 'cal-ev', title: ev }, ev));
-      if (data.events.length > 3) evs.push(h('div', { class: 'cal-ev' }, `+${data.events.length - 3} more`));
-      if (!evs.length) evs.push(h('div', { class: 'cal-ev blank' }));
+      const daySpans = spanMap[day] || [];
 
-      cells.push(h('button', {
-        type: 'button', class: 'cal-cell',
-        'aria-label': `Edit ${L.MONTHS[pm.month - 1]} ${day}`,
-        onclick: () => openDayEditor(day, () => { drawGrid(grid, onChange); onChange(); })
+      // Build event bars for this cell
+      const evEls = daySpans.map(({ label, isStart, isEnd, spanLength, posInSpan }) => {
+        if (isStart && spanLength === 1) {
+          // single-day event — normal chip, centered text
+          return h('div', { class: 'cal-ev', title: label, style: 'text-align:center;' }, label);
+        }
+
+        // Multi-day span: show label only on the center cell
+        const centerPos = Math.floor((spanLength - 1) / 2);
+        const isCenter = posInSpan === centerPos;
+
+        // Border radius: left cap on start, right cap on end, square in between
+        let radius = '0';
+        if (isStart && isEnd) radius = '6px';
+        else if (isStart) radius = '6px 0 0 6px';
+        else if (isEnd) radius = '0 6px 6px 0';
+
+        // Margin: overlap the cell border for seamless connection
+        let margin = '0 -1px';
+        if (isStart) margin = '0 -1px 0 0';
+        if (isEnd) margin = '0 0 0 -1px';
+
+        return h('div', {
+          class: 'cal-ev span-ev' +
+            (isStart ? ' span-ev-start' : '') +
+            (isEnd ? ' span-ev-end' : '') +
+            (!isStart && !isEnd ? ' span-ev-mid' : ''),
+          title: `${label} (${spanLength} days)`,
+          style: `border-radius:${radius}; margin:${margin}; text-align:center; overflow:visible; white-space:nowrap;`
+        }, isCenter ? label : '\u00a0');
+      });
+
+      // Also add any events NOT in spanMap (non-spanning) as regular chips
+      const nonSpanEvs = data.events.filter((ev) => !daySpans.some((s) => s.label === ev));
+      nonSpanEvs.slice(0, Math.max(0, 3 - evEls.length)).forEach((ev) => {
+        evEls.push(h('div', { class: 'cal-ev', title: ev, style: 'text-align:center;' }, ev));
+      });
+      const extraNonSpan = nonSpanEvs.length - Math.max(0, 3 - daySpans.length);
+      if (extraNonSpan > 0) evEls.push(h('div', { class: 'cal-ev', style: 'text-align:center;' }, `+${extraNonSpan} more`));
+
+      if (!evEls.length) evEls.push(h('div', { class: 'cal-ev blank' }));
+
+      const dayNum = day; // capture for closure
+      const cell = h('button', {
+        type: 'button',
+        class: 'cal-cell',
+        'data-day': String(dayNum),
+        'aria-label': `Edit ${L.MONTHS[pm.month - 1]} ${dayNum}`,
+        onmousedown: (e) => {
+          if (e.button !== 0) return;
+          closeFillPopover();
+          dragStart = dayNum;
+          dragEnd = dayNum;
+          isDragging = true;
+          updateRangeHighlight();
+          e.preventDefault(); // prevent text select
+        },
+        onmouseenter: () => {
+          if (!isDragging) return;
+          dragEnd = dayNum;
+          updateRangeHighlight();
+        },
+        onmouseup: (e) => {
+          if (!isDragging) return;
+          dragEnd = dayNum;
+          isDragging = false;
+          updateRangeHighlight();
+          const range = getRangeMinMax();
+          if (range && range.from === range.to) {
+            // single day — open normal editor
+            clearDrag();
+            openDayEditor(dayNum, () => { drawGrid(grid, onChange); onChange(); });
+          } else {
+            // multi-day drag — open fill popover
+            openFillPopover(cell);
+          }
+        }
       },
-      h('div', { class: 'cal-evs' }, evs),
-      h('div', { class: 'cal-day' }, String(day)),
+      h('div', { class: 'cal-evs' }, evEls),
+      h('div', { class: 'cal-day' }, String(dayNum)),
       h('div', { class: 'cal-people' },
-        lines.length ? lines.map((l) => h('div', { title: l }, l)) : h('span', { class: 'cal-hint' }, 'Add'))));
+        lines.length ? lines.map((l) => h('div', { title: l }, l)) : h('span', { class: 'cal-hint' }, 'Add')));
+      cells.push(cell);
     }
 
     const tail = (7 - ((offset + total) % 7)) % 7;
     for (let i = 0; i < tail; i++) cells.push(h('div', { class: 'cal-blank' }));
+
+    // Cancel drag if mouse releases outside grid
+    const onDocMouseUp = () => {
+      if (isDragging) {
+        isDragging = false;
+        const range = getRangeMinMax();
+        if (range && range.from !== range.to) {
+          const anchor = grid.querySelector(`.cal-cell[data-day="${range.to}"]`) ||
+                         grid.querySelector(`.cal-cell[data-day="${range.from}"]`);
+          if (anchor) openFillPopover(anchor);
+          else clearDrag();
+        } else {
+          clearDrag();
+        }
+      }
+    };
+    document.addEventListener('mouseup', onDocMouseUp, { once: true });
+
     grid.replaceChildren(...cells);
   }
 
@@ -266,9 +663,9 @@
     const pplBox = h('div');
 
     function drawEvents(focusLast) {
-      evBox.replaceChildren(...work.events.map((ev, i) => h('div', { class: 'row' },
+      evBox.replaceChildren(...work.events.map((ev, i) => h('div', { class: 'row event-row' },
         h('input', {
-          class: 'input', value: ev, list: 'dlEvents', placeholder: 'Event, for example feature',
+          class: 'input event-input', value: ev, list: 'dlEvents', placeholder: 'Event, for example feature',
           'aria-label': 'Event',
           oninput: (e) => { work.events[i] = e.target.value; },
           onkeydown: (e) => {
@@ -276,55 +673,72 @@
           }
         }),
         h('button', {
-          type: 'button', class: 'x', title: 'Remove event', 'aria-label': 'Remove event',
+          type: 'button', class: 'x remove-btn', title: 'Remove event', 'aria-label': 'Remove event',
           onclick: () => { work.events.splice(i, 1); if (!work.events.length) work.events.push(''); drawEvents(); }
         }, '×'))));
       if (focusLast) evBox.querySelector('.row:last-child input').focus();
     }
 
-    function drawPeople(focusLast) {
-      const positions = state.config.positions;
-      pplBox.replaceChildren(...work.assignments.map((a, i) => {
-        const chips = positions.length
-          ? positions.map((p) => {
-            const btn = h('button', {
-              type: 'button', class: 'pos' + (a.positions.includes(p.code) ? ' on' : ''),
-              title: p.label, 'aria-pressed': String(a.positions.includes(p.code)),
-              onclick: () => {
-                const k = a.positions.indexOf(p.code);
-                if (k >= 0) a.positions.splice(k, 1); else a.positions.push(p.code);
-                btn.classList.toggle('on', k < 0);
-                btn.setAttribute('aria-pressed', String(k < 0));
-              }
-            }, h('b', {}, p.code), ' ', p.label);
-            return btn;
-          })
-          : h('span', { class: 'sub' }, 'No positions yet. Add some in Settings.');
+    function applyMemberPositions(a) {
+      const match = state.config.members.find(
+        (m) => (typeof m === 'string' ? m : m.name).toLowerCase() === a.name.trim().toLowerCase()
+      );
+      if (match && typeof match === 'object' && Array.isArray(match.positions)) {
+        a.positions = match.positions.slice();
+      }
+    }
 
-        return h('div', { class: 'person' },
-          h('div', { class: 'row' },
-            h('input', {
-              class: 'input', value: a.name, list: 'dlMembers', placeholder: 'Name', 'aria-label': 'Name',
-              oninput: (e) => { a.name = e.target.value; },
-              onkeydown: (e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  work.assignments.push({ name: '', positions: [] });
-                  drawPeople(true);
-                }
+    function drawPeople(focusLast) {
+      pplBox.replaceChildren(...work.assignments.map((a, i) => {
+        const posCodes = Array.isArray(a.positions) ? a.positions.filter(Boolean) : [];
+        const posText = posCodes.join('/');
+
+        const posTag = posText
+          ? h('span', { class: 'person-pos-tag', title: posCodes.map((c) => {
+              const found = state.config.positions.find((p) => p.code === c);
+              return found ? `${found.code} - ${found.label}` : c;
+            }).join(', ') }, posText)
+          : h('span', { class: 'person-pos-tag empty' }, 'No position');
+
+        return h('div', { class: 'person-row' },
+          h('input', {
+            class: 'input person-name-input', value: a.name, list: 'dlMembers', placeholder: 'Name', 'aria-label': 'Name',
+            oninput: (e) => {
+              a.name = e.target.value;
+              applyMemberPositions(a);
+              // update pos tag inline without full redraw
+              const newCodes = Array.isArray(a.positions) ? a.positions.filter(Boolean) : [];
+              const newText = newCodes.join('/');
+              posTag.textContent = newText || 'No position';
+              posTag.classList.toggle('empty', !newText);
+              posTag.title = newCodes.map((c) => {
+                const found = state.config.positions.find((p) => p.code === c);
+                return found ? `${found.code} - ${found.label}` : c;
+              }).join(', ');
+            },
+            onkeydown: (e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                work.assignments.push({ name: '', positions: [] });
+                drawPeople(true);
               }
-            }),
-            h('button', {
-              type: 'button', class: 'x', title: 'Remove person', 'aria-label': 'Remove person',
-              onclick: () => {
-                work.assignments.splice(i, 1);
-                if (!work.assignments.length) work.assignments.push({ name: '', positions: [] });
-                drawPeople();
-              }
-            }, '×')),
-          h('div', { class: 'pos-chips' }, chips));
+            }
+          }),
+          posTag,
+          h('button', {
+            type: 'button', class: 'x remove-btn', title: 'Remove person', 'aria-label': 'Remove person',
+            onclick: () => {
+              work.assignments.splice(i, 1);
+              if (!work.assignments.length) work.assignments.push({ name: '', positions: [] });
+              drawPeople();
+            }
+          }, '×')
+        );
       }));
-      if (focusLast) pplBox.querySelector('.person:last-child input').focus();
+      if (focusLast) {
+        const last = pplBox.querySelector('.person-row:last-child input');
+        if (last) last.focus();
+      }
     }
 
     function save() {
@@ -342,29 +756,52 @@
     drawPeople();
 
     const m = openModal([
-      h('div', { class: 'modal-head' },
-        h('h2', {}, `${L.MONTHS[pm.month - 1]} ${day}`),
-        h('small', {}, L.WEEKDAYS_LONG[date.getDay()])),
-      h('div', { class: 'modal-body' },
-        h('datalist', { id: 'dlMembers' }, state.config.members.map((n) => h('option', { value: n }))),
+      h('div', { class: 'modal-head ios-modal-head' },
+        h('div', { class: 'modal-head-info' },
+          h('h2', {}, `${L.MONTHS[pm.month - 1]} ${day}`),
+          h('small', { class: 'modal-head-sub' }, L.WEEKDAYS_LONG[date.getDay()])),
+        h('button', { class: 'modal-close-icon', title: 'Close', 'aria-label': 'Close', onclick: () => m.close() }, '✕')),
+      h('div', { class: 'modal-body ios-modal-body' },
+        h('datalist', { id: 'dlMembers' }, state.config.members.map((m) => h('option', { value: typeof m === 'string' ? m : m.name }))),
         h('datalist', { id: 'dlEvents' }, state.config.eventPresets.map((n) => h('option', { value: n }))),
-        h('div', { class: 'sec-title' }, 'Events'),
-        evBox,
-        h('button', { type: 'button', class: 'btn small', onclick: () => { work.events.push(''); drawEvents(true); } }, 'Add event'),
-        h('div', { class: 'sec-title', style: 'margin-top:18px' }, 'People and positions'),
-        h('p', { class: 'sub', style: 'margin:0 0 8px' }, 'Pick one or more positions for each person.'),
-        pplBox,
-        h('button', {
-          type: 'button', class: 'btn small',
-          onclick: () => { work.assignments.push({ name: '', positions: [] }); drawPeople(true); }
-        }, 'Add person')),
-      h('div', { class: 'modal-foot' },
+        h('div', { class: 'modal-section' },
+          h('div', { class: 'sec-title' },
+            h('svg', { class: 'sec-icon', viewBox: '0 0 24 24', width: '16', height: '16', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' },
+              h('rect', { x: '3', y: '4', width: '18', height: '18', rx: '2', ry: '2' }),
+              h('line', { x1: '16', y1: '2', x2: '16', y2: '6' }),
+              h('line', { x1: '8', y1: '2', x2: '8', y2: '6' }),
+              h('line', { x1: '3', y1: '10', x2: '21', y2: '10' })),
+            h('span', {}, 'Events')),
+          evBox,
+          h('button', {
+            type: 'button', class: 'btn btn-add',
+            onclick: () => { work.events.push(''); drawEvents(true); }
+          },
+            h('span', { class: 'btn-plus-icon' }, '+'),
+            'Add event')),
+        h('div', { class: 'modal-section' },
+          h('div', { class: 'sec-title' },
+            h('svg', { class: 'sec-icon', viewBox: '0 0 24 24', width: '16', height: '16', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' },
+              h('path', { d: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2' }),
+              h('circle', { cx: '9', cy: '7', r: '4' }),
+              h('path', { d: 'M23 21v-2a4 4 0 0 0-3-3.87' }),
+              h('path', { d: 'M16 3.13a4 4 0 0 1 0 7.75' })),
+            h('span', {}, 'People')),
+          h('p', { class: 'sec-sub' }, 'Type a name — positions are auto-applied from the Members list.'),
+          pplBox,
+          h('button', {
+            type: 'button', class: 'btn btn-add',
+            onclick: () => { work.assignments.push({ name: '', positions: [] }); drawPeople(true); }
+          },
+            h('span', { class: 'btn-plus-icon' }, '+'),
+            'Add person'))),
+      h('div', { class: 'modal-foot ios-modal-foot' },
         h('button', {
           class: 'btn danger',
           onclick: () => { delete d.days[day]; m.close(); onSave(); }
         }, 'Clear day'),
         h('span', { class: 'spacer' }),
-        h('button', { class: 'btn', onclick: () => m.close() }, 'Cancel'),
+        h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Cancel'),
         h('button', { class: 'btn primary', onclick: save }, 'Save day'))
     ], { wide: true });
 
@@ -382,13 +819,19 @@
     const btnSave = h('button', {
       class: 'btn primary ios-btn-primary',
       onclick: async () => {
+        btnSave.disabled = true;
+        btnSave.textContent = 'Saving…';
         try {
           const target = currentFormat === 'xlsx' ? f.xlsx : (currentFormat === 'pdf' ? f.pdf : f.png);
           if (!target) throw new Error('File not available.');
           const r = await api.saveAs(target);
           if (r) toast('Saved copy to ' + r);
+          m.close();
+          setView('history');
         } catch (e) {
           toast(cleanErr(e), 'error');
+          btnSave.disabled = false;
+          btnSave.textContent = 'Save';
         }
       }
     }, 'Save');
@@ -404,8 +847,10 @@
 
     const m = openModal([
       h('div', { class: 'modal-head ios-modal-head' },
-        h('h2', {}, rec.title),
-        h('small', {}, 'Schedule generated successfully')
+        h('div', { class: 'modal-head-info' },
+          h('h2', {}, rec.title),
+          h('small', { class: 'modal-head-sub' }, 'Schedule generated successfully')),
+        h('button', { class: 'modal-close-icon', title: 'Close', 'aria-label': 'Close', onclick: () => m.close() }, '✕')
       ),
       h('div', { class: 'modal-body ios-modal-body' },
         res.warnings.length ? h('div', { class: 'warn' }, res.warnings.join(' ')) : null,
@@ -422,7 +867,7 @@
       h('div', { class: 'modal-foot ios-modal-foot' },
         formatSelect,
         h('span', { class: 'spacer' }),
-        h('button', { class: 'btn ios-btn-ghost', onclick: () => m.close() }, 'Done'),
+        h('button', { class: 'btn ios-btn-ghost', onclick: () => { m.close(); setView('history'); } }, 'Go to History'),
         btnSave
       )
     ], { wide: true });
@@ -708,6 +1153,346 @@
     if (state.view === 'settings') renderSettings();
   }
 
+  function renderTeam() {
+    const root = $('#view-team');
+    root.replaceChildren();
+    const c = state.config;
+
+    async function patch(p) {
+      try {
+        state.config = await api.setConfig(p);
+      } catch (e) {
+        toast(cleanErr(e), 'error');
+      }
+    }
+
+    let memberFilter = '';
+    const newMemberState = { name: '', positions: [] };
+
+    // --- POSITIONS MANAGEMENT ---
+    let posRows = (c.positions || []).map((p) => ({ code: p.code, label: p.label }));
+    const posBox = h('div', { class: 'pos-manage-list' });
+
+    const savePositions = async () => {
+      const cleaned = posRows
+        .filter((p) => p.code.trim())
+        .map((p) => ({ code: p.code.trim(), label: p.label.trim() }));
+      await patch({ positions: cleaned });
+      drawAddMemberPills();
+      drawMembersList();
+    };
+
+    function drawPos(focusLast) {
+      posBox.replaceChildren(...posRows.map((p, i) => h('div', { class: 'pos-row ios-pos-row' },
+        h('input', {
+          class: 'input pos-code-input', value: p.code, maxlength: '6', placeholder: 'Code', 'aria-label': 'Position code',
+          onchange: (e) => { p.code = e.target.value.trim(); savePositions(); }
+        }),
+        h('input', {
+          class: 'input pos-label-input', value: p.label, placeholder: 'Name, e.g. Writer', 'aria-label': 'Position name',
+          onchange: (e) => { p.label = e.target.value.trim(); savePositions(); }
+        }),
+        h('button', {
+          type: 'button',
+          class: 'x remove-btn', title: 'Remove position', 'aria-label': 'Remove position',
+          onclick: () => { posRows.splice(i, 1); drawPos(); savePositions(); }
+        }, '×'))));
+      if (focusLast) {
+        const last = posBox.querySelector('.pos-row:last-child input');
+        if (last) last.focus();
+      }
+    }
+    drawPos();
+
+    // --- MEMBERS MANAGEMENT ---
+    let membersList = (c.members || []).map((m) =>
+      typeof m === 'string'
+        ? { name: m, positions: [] }
+        : { name: m.name, positions: Array.isArray(m.positions) ? m.positions.slice() : [] }
+    );
+
+    const saveMembers = async () => {
+      await patch({ members: membersList });
+    };
+
+    const addMemberPillsBox = h('div', { class: 'pos-chips add-member-chips' });
+
+    function drawAddMemberPills() {
+      addMemberPillsBox.replaceChildren(
+        ...state.config.positions.map((p) => {
+          const isSelected = newMemberState.positions.includes(p.code);
+          const pill = h('button', {
+            type: 'button',
+            class: 'pos' + (isSelected ? ' on' : ''),
+            title: `Select ${p.label}`,
+            onclick: () => {
+              const idx = newMemberState.positions.indexOf(p.code);
+              if (idx >= 0) newMemberState.positions.splice(idx, 1);
+              else newMemberState.positions.push(p.code);
+              pill.classList.toggle('on', idx < 0);
+            }
+          }, h('b', {}, p.code), ' ', p.label);
+          return pill;
+        })
+      );
+    }
+    drawAddMemberPills();
+
+    function makeEditIcon() {
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('class', 'action-icon edit-icon-svg');
+      svg.setAttribute('viewBox', '0 0 24 24');
+      svg.setAttribute('width', '15');
+      svg.setAttribute('height', '15');
+      svg.setAttribute('fill', 'none');
+      svg.setAttribute('stroke', 'currentColor');
+      svg.setAttribute('stroke-width', '2');
+      svg.setAttribute('stroke-linecap', 'round');
+      svg.setAttribute('stroke-linejoin', 'round');
+      svg.innerHTML = '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>';
+      return svg;
+    }
+
+    let editingMember = null;
+    const formHeading = h('div', { class: 'form-mode-title', style: 'display:none; margin-bottom: 8px;' });
+    const formTrayLabel = h('div', { class: 'tray-label', style: 'margin-bottom: 6px;' }, 'Select default positions:');
+    const btnSubmit = h('button', { class: 'btn primary', onclick: commitMember }, 'Add Member');
+    const btnCancel = h('button', {
+      type: 'button',
+      class: 'btn ios-btn-ghost',
+      style: 'display:none; margin-left: 8px;',
+      onclick: cancelEdit
+    }, 'Cancel');
+
+    const newMemberInput = h('input', {
+      class: 'input grow',
+      placeholder: 'Full name, for example Alex Rivera',
+      onkeydown: (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          commitMember();
+        } else if (e.key === 'Escape' && editingMember) {
+          e.preventDefault();
+          cancelEdit();
+        }
+      }
+    });
+
+    const addMemberSection = h('div', { class: 'add-member-section' },
+      formHeading,
+      h('div', { class: 'row', style: 'margin-bottom: 12px;' },
+        newMemberInput,
+        btnSubmit,
+        btnCancel),
+      h('div', { class: 'add-member-pos-select' },
+        formTrayLabel,
+        addMemberPillsBox));
+
+    function commitMember() {
+      const name = newMemberInput.value.trim();
+      if (!name) return;
+      const lower = name.toLowerCase();
+
+      if (editingMember) {
+        if (membersList.some((m) => m !== editingMember && m.name.toLowerCase() === lower)) {
+          toast(`"${name}" is already used by another member.`, 'error');
+          return;
+        }
+        editingMember.name = name;
+        editingMember.positions = newMemberState.positions.slice();
+        toast(`Updated "${name}".`);
+        cancelEdit();
+        drawMembersList();
+        saveMembers();
+        return;
+      }
+
+      if (membersList.some((m) => m.name.toLowerCase() === lower)) {
+        toast(`"${name}" is already in the member list.`, 'error');
+        return;
+      }
+      membersList.push({ name, positions: newMemberState.positions.slice() });
+      newMemberInput.value = '';
+      newMemberState.positions = [];
+      drawAddMemberPills();
+      drawMembersList();
+      saveMembers();
+      toast(`Added "${name}" with ${membersList[membersList.length - 1].positions.length} position(s).`);
+    }
+
+    function startEditMember(m) {
+      editingMember = m;
+      newMemberInput.value = m.name;
+      newMemberState.positions = Array.isArray(m.positions) ? m.positions.slice() : [];
+      drawAddMemberPills();
+      formHeading.style.display = 'flex';
+      formHeading.replaceChildren(
+        h('span', { class: 'editing-badge' }, 'Editing'),
+        h('span', { class: 'editing-name' }, m.name)
+      );
+      formTrayLabel.textContent = `Select assigned positions for ${m.name}:`;
+      btnSubmit.textContent = 'Save Changes';
+      btnCancel.style.display = 'inline-flex';
+      drawMembersList();
+      newMemberInput.focus();
+      addMemberSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    function cancelEdit() {
+      editingMember = null;
+      newMemberInput.value = '';
+      newMemberState.positions = [];
+      drawAddMemberPills();
+      formHeading.style.display = 'none';
+      formTrayLabel.textContent = 'Select default positions:';
+      btnSubmit.textContent = 'Add Member';
+      btnCancel.style.display = 'none';
+      drawMembersList();
+    }
+
+    const membersCountLabel = h('span', { class: 'member-count-pill' });
+    const membersListBox = h('div', { class: 'team-members-list' });
+
+    function drawMembersList() {
+      const filter = memberFilter.trim().toLowerCase();
+      const filtered = membersList.filter((m) => {
+        if (!filter) return true;
+        if (m.name.toLowerCase().includes(filter)) return true;
+        return m.positions.some((code) => {
+          if (code.toLowerCase().includes(filter)) return true;
+          const pos = state.config.positions.find((p) => p.code === code);
+          return pos && pos.label.toLowerCase().includes(filter);
+        });
+      });
+
+      membersCountLabel.textContent = `${membersList.length} ${membersList.length === 1 ? 'member' : 'members'}`;
+
+      if (!filtered.length) {
+        membersListBox.replaceChildren(
+          h('div', { class: 'card empty-team-card' },
+            membersList.length ? 'No members match your search.' : 'No team members added yet. Add your first member above.')
+        );
+        return;
+      }
+
+      membersListBox.replaceChildren(...filtered.map((m) => {
+        const isEditingThis = (editingMember === m);
+
+        const posCodes = Array.isArray(m.positions) ? m.positions.map((c) => String(c).toUpperCase()).filter(Boolean) : [];
+        const posText = posCodes.join('/');
+
+        const btnEdit = h('button', {
+          type: 'button',
+          class: 'edit-btn',
+          title: `Edit ${m.name}`,
+          'aria-label': `Edit ${m.name}`,
+          onclick: (e) => {
+            e.stopPropagation();
+            startEditMember(m);
+          }
+        }, makeEditIcon());
+
+        const btnRemove = h('button', {
+          type: 'button',
+          class: 'x remove-btn',
+          title: `Remove ${m.name}`,
+          'aria-label': `Remove ${m.name}`,
+          onclick: (e) => {
+            e.stopPropagation();
+            if (editingMember === m) cancelEdit();
+            membersList = membersList.filter((item) => item !== m);
+            drawMembersList();
+            saveMembers();
+            toast(`Removed "${m.name}".`);
+          }
+        }, '×');
+
+        return h('div', {
+          class: 'member-simple-row' + (isEditingThis ? ' is-editing' : ''),
+          onclick: () => startEditMember(m)
+        },
+          h('div', { class: 'member-row-info' },
+            h('span', { class: 'member-row-name', title: m.name }, m.name),
+            posText
+              ? [
+                  h('span', { class: 'member-row-sep' }, '-'),
+                  h('span', {
+                    class: 'member-pos-badge',
+                    title: m.positions.map((c) => {
+                      const found = state.config.positions.find((p) => p.code.toLowerCase() === c.toLowerCase());
+                      return found ? `${found.code} (${found.label})` : c;
+                    }).join(', ')
+                  }, posText)
+                ]
+              : [
+                  h('span', { class: 'member-row-sep' }, '-'),
+                  h('span', { class: 'member-pos-empty' }, 'No positions')
+                ]
+          ),
+          h('div', { class: 'member-row-actions' },
+            btnEdit,
+            btnRemove
+          )
+        );
+      }));
+    }
+
+    const searchInput = h('input', {
+      class: 'input grow',
+      type: 'search',
+      placeholder: 'Search members by name or position…',
+      oninput: (e) => {
+        memberFilter = e.target.value;
+        drawMembersList();
+      }
+    });
+
+    drawMembersList();
+
+    root.append(
+      h('h1', {}, 'Members & Positions'),
+      h('p', { class: 'sub' }, 'Manage team members, configure multiple positions, and customize shorthand schedule codes.'),
+      h('div', { class: 'team-layout-grid' },
+
+        // Left Column: Members
+        h('div', { class: 'card team-members-card' },
+          h('div', { class: 'card-header-row' },
+            h('div', {},
+              h('h2', {}, 'Team Members'),
+              h('p', { class: 'sub', style: 'margin:0' }, 'Manage team members and assigned positions. Click edit or select positions on top.')),
+            membersCountLabel),
+
+          // Add/Edit Member Form
+          addMemberSection,
+
+          // Search Row
+          h('div', { class: 'row', style: 'margin-top: 18px; margin-bottom: 14px;' },
+            searchInput),
+
+          // Members List
+          membersListBox),
+
+        // Right Column: Position Codes
+        h('div', { class: 'card team-positions-card' },
+          h('h2', {}, 'Position Codes'),
+          h('p', { class: 'sub', style: 'margin-top:0' },
+            'Shorthand codes (e.g. "W" for Writer) appear in calendar cells. Update labels or add new roles anytime.'),
+          posBox,
+          h('button', {
+            type: 'button',
+            class: 'btn btn-add',
+            style: 'margin-top: 10px;',
+            onclick: () => {
+              posRows.push({ code: '', label: '' });
+              drawPos(true);
+            }
+          },
+            h('span', { class: 'btn-plus-icon' }, '+'),
+            'Add position'))
+      )
+    );
+  }
+
   function renderSettings() {
     const root = $('#view-settings');
     root.replaceChildren();
@@ -717,34 +1502,9 @@
       try { state.config = await api.setConfig(p); } catch (e) { toast(cleanErr(e), 'error'); }
     }
 
-    // Positions
-    let posRows = c.positions.map((p) => ({ code: p.code, label: p.label }));
-    const posBox = h('div');
-    const savePositions = () => patch({
-      positions: posRows.filter((p) => p.code.trim()).map((p) => ({ code: p.code.trim(), label: p.label.trim() }))
-    });
-
-    function drawPos(focusLast) {
-      posBox.replaceChildren(...posRows.map((p, i) => h('div', { class: 'pos-row' },
-        h('input', {
-          class: 'input', value: p.code, maxlength: '6', placeholder: 'Code', 'aria-label': 'Position code',
-          onchange: (e) => { p.code = e.target.value; savePositions(); }
-        }),
-        h('input', {
-          class: 'input', value: p.label, placeholder: 'Name, for example Writer', 'aria-label': 'Position name',
-          onchange: (e) => { p.label = e.target.value; savePositions(); }
-        }),
-        h('button', {
-          class: 'x', title: 'Remove position', 'aria-label': 'Remove position',
-          onclick: () => { posRows.splice(i, 1); drawPos(); savePositions(); }
-        }, '×'))));
-      if (focusLast) posBox.querySelector('.pos-row:last-child input').focus();
-    }
-    drawPos();
-
     root.append(
       h('h1', {}, 'Settings'),
-      h('p', { class: 'sub' }, 'Changes are saved as you make them.'),
+      h('p', { class: 'sub' }, 'Configure schedule storage, sheet layout options, and event suggestions.'),
       h('div', { class: 'set-grid' },
 
         h('div', { class: 'card wide' },
@@ -791,12 +1551,6 @@
             h('button', { class: 'btn', onclick: () => api.openFolder() }, 'Open'))),
 
         h('div', { class: 'card' },
-          h('h2', {}, 'Positions'),
-          h('p', { class: 'sub', style: 'margin-top:0' }, 'The code appears on the sheet, as in W-Wendy. A person can hold several.'),
-          posBox,
-          h('button', { class: 'btn small', onclick: () => { posRows.push({ code: '', label: '' }); drawPos(true); } }, 'Add position')),
-
-        h('div', { class: 'card' },
           h('h2', {}, 'Sheet layout'),
           h('label', { class: 'field' },
             h('span', {}, 'People lines per row'),
@@ -808,11 +1562,6 @@
           h('label', { class: 'inline-check' },
             h('input', { type: 'checkbox', checked: c.showLegend, onchange: (e) => patch({ showLegend: e.target.checked }) }),
             'Show the position key under the calendar')),
-
-        h('div', { class: 'card' },
-          h('h2', {}, 'Members'),
-          h('p', { class: 'sub', style: 'margin-top:0' }, 'Suggested while typing names. New names you enter are added automatically.'),
-          chipEditor(c.members.slice(), 'Add names, separated by commas', (items) => patch({ members: items }))),
 
         h('div', { class: 'card' },
           h('h2', {}, 'Event suggestions'),
@@ -871,7 +1620,113 @@
     updateFolderLabel();
     document.querySelectorAll('.nav').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
     $('#btnPickFolder').addEventListener('click', pickFolder);
+    initWindowControls();
     setView('new');
+  }
+
+  function initWindowControls() {
+    const btnMin = $('#btnWinMin');
+    const btnMax = $('#btnWinMax');
+    const btnClose = $('#btnWinClose');
+    const titlebar = $('#windowTitlebar');
+
+    function updateMax(isMax) {
+      document.body.classList.toggle('is-maximized', isMax);
+      const iconMax = $('#iconMax');
+      const iconRestore = $('#iconRestore');
+      if (iconMax) iconMax.classList.toggle('hidden', isMax);
+      if (iconRestore) iconRestore.classList.toggle('hidden', !isMax);
+    }
+
+    if (btnMin) btnMin.addEventListener('click', () => api.minimizeWindow && api.minimizeWindow());
+    if (btnMax) btnMax.addEventListener('click', async () => {
+      if (api.maximizeWindow) {
+        const isMax = await api.maximizeWindow();
+        updateMax(isMax);
+      }
+    });
+    if (btnClose) btnClose.addEventListener('click', () => api.closeWindow && api.closeWindow());
+
+    if (titlebar) {
+      const dragArea = titlebar.querySelector('.titlebar-drag-area');
+      if (dragArea) {
+        dragArea.addEventListener('dblclick', async () => {
+          if (api.maximizeWindow) {
+            const isMax = await api.maximizeWindow();
+            updateMax(isMax);
+          }
+        });
+      }
+    }
+
+    if (api.onMaximizedChange) {
+      api.onMaximizedChange((isMax) => updateMax(isMax));
+    }
+
+    if (api.isMaximized) {
+      api.isMaximized().then((isMax) => updateMax(isMax)).catch(() => {});
+    }
+
+    initWindowResizing();
+  }
+
+  function initWindowResizing() {
+    const handles = document.querySelectorAll('.resize-handle');
+    if (!handles.length || !api.getBounds || !api.setBounds) return;
+
+    handles.forEach((handle) => {
+      handle.addEventListener('mousedown', async (e) => {
+        if (document.body.classList.contains('is-maximized')) return;
+        e.preventDefault();
+        const edge = handle.dataset.edge;
+        const startX = e.screenX;
+        const startY = e.screenY;
+        const initialBounds = await api.getBounds();
+        if (!initialBounds) return;
+
+        let rafId = null;
+        let latestBounds = Object.assign({}, initialBounds);
+
+        const onMouseMove = (ev) => {
+          const dx = ev.screenX - startX;
+          const dy = ev.screenY - startY;
+          let { x, y, width, height } = initialBounds;
+
+          if (edge.includes('e')) width = Math.max(980, initialBounds.width + dx);
+          if (edge.includes('s')) height = Math.max(650, initialBounds.height + dy);
+          if (edge.includes('w')) {
+            const newW = Math.max(980, initialBounds.width - dx);
+            x = initialBounds.x + (initialBounds.width - newW);
+            width = newW;
+          }
+          if (edge.includes('n')) {
+            const newH = Math.max(650, initialBounds.height - dy);
+            y = initialBounds.y + (initialBounds.height - newH);
+            height = newH;
+          }
+
+          latestBounds = { x, y, width, height };
+          if (!rafId) {
+            rafId = requestAnimationFrame(() => {
+              api.setBounds(latestBounds);
+              rafId = null;
+            });
+          }
+        };
+
+        const onMouseUp = () => {
+          window.removeEventListener('mousemove', onMouseMove);
+          window.removeEventListener('mouseup', onMouseUp);
+          if (rafId) {
+            cancelAnimationFrame(rafId);
+            api.setBounds(latestBounds);
+          }
+        };
+
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup', onMouseUp);
+      });
+    });
   }
 
   init().catch((e) => toast(cleanErr(e), 'error'));

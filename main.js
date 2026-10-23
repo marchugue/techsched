@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -10,6 +10,9 @@ log.transports.file.level = 'info';
 autoUpdater.logger = log;
 autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = true;
+
+// Remove native application menu bar
+Menu.setApplicationMenu(null);
 
 const L = require('./src/lib/layout');
 const { writeExcel } = require('./src/lib/excel');
@@ -27,9 +30,12 @@ function createWindow() {
     height: 860,
     minWidth: 980,
     minHeight: 650,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    roundedCorners: true,
     title: 'TechSched',
     icon: fs.existsSync(iconPath) ? iconPath : undefined,
-    backgroundColor: '#f6f7fa',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -37,6 +43,21 @@ function createWindow() {
       sandbox: true
     }
   });
+
+  win.removeMenu();
+
+  win.on('maximize', () => {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('window:maximized-change', true);
+    }
+  });
+
+  win.on('unmaximize', () => {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('window:maximized-change', false);
+    }
+  });
+
   win.loadFile(path.join(__dirname, 'src', 'renderer', 'index.html'));
 }
 
@@ -58,12 +79,15 @@ async function generate(input) {
   const days = L.cleanDays(input.days, total);
 
   // New names typed into the editor join the member list.
-  const known = new Set(cfg.members.map((n) => n.toLowerCase()));
+  const known = new Set(cfg.members.map((m) => (typeof m === 'string' ? m : m.name).toLowerCase()));
   const fresh = [];
   for (const d of Object.values(days)) {
     for (const a of d.assignments) {
       const k = a.name.toLowerCase();
-      if (!known.has(k)) { known.add(k); fresh.push(a.name); }
+      if (!known.has(k)) {
+        known.add(k);
+        fresh.push({ name: a.name, positions: a.positions ? a.positions.slice() : [] });
+      }
     }
   }
   if (fresh.length) cfg = store.saveConfig({ members: cfg.members.concat(fresh) });
@@ -210,6 +234,40 @@ function registerIpc() {
 
   ipcMain.handle('updater:install', () => {
     autoUpdater.quitAndInstall();
+  });
+
+  // Window control IPC handlers
+  ipcMain.handle('window:minimize', () => {
+    if (win) win.minimize();
+  });
+
+  ipcMain.handle('window:maximize', () => {
+    if (!win) return false;
+    if (win.isMaximized()) {
+      win.unmaximize();
+      return false;
+    } else {
+      win.maximize();
+      return true;
+    }
+  });
+
+  ipcMain.handle('window:close', () => {
+    if (win) win.close();
+  });
+
+  ipcMain.handle('window:isMaximized', () => {
+    return win ? win.isMaximized() : false;
+  });
+
+  ipcMain.handle('window:getBounds', () => {
+    return win ? win.getBounds() : null;
+  });
+
+  ipcMain.handle('window:setBounds', (e, bounds) => {
+    if (win && bounds) {
+      win.setBounds(bounds);
+    }
   });
 }
 
